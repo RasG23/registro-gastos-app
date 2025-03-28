@@ -2,26 +2,30 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
-import gspread
-import json
 import zipfile
-
+import json
+import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# Cargar credenciales desde Secrets de Streamlit
+# ======================== CONFIGURACIÓN GOOGLE SHEETS ========================
+
+# Leer credenciales desde los secretos de Streamlit
 creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(credentials)
 
-# Abrir hoja de cálculo y worksheet (asegúrate de tener una hoja con ese nombre)
-sheet = client.open("registro_gastos").sheet1
+# Abrir hoja por ID (asegúrate de compartir el documento con el correo de servicio)
+sheet = client.open_by_key("T1HpVxewZ3HoqeppZmKycNV8SyYqhRJHmVULKMmoa-JoA").sheet1  # <-- Reemplaza con tu ID
 
-# Crear carpetas si no existen
+# ======================== INTERFAZ ========================
+st.set_page_config(page_title="Registro de Gastos", layout="centered")
+st.title("Registro de Gastos de Empresa")
+
+# Crear carpetas locales si no existen
 os.makedirs("fotos_tickets", exist_ok=True)
 
-st.title("Registro de Gastos - Google Sheets")
-
+# ======================== FORMULARIO ========================
 with st.form("registro_gasto"):
     fecha_ticket = st.date_input("Fecha del ticket")
     tipo_ticket = st.selectbox("Tipo de ticket", ["Gasoil", "Comida", "Peajes", "Chat GPT", "Notion"])
@@ -33,19 +37,12 @@ with st.form("registro_gasto"):
     enviado = st.form_submit_button("Guardar gasto")
 
     if enviado:
-        # Obtener el número de línea actual
-        num_linea = len(sheet.get_all_values()) + 1
-        registro_id = f"ID{num_linea:04}"
+        # Obtener la siguiente línea (registro)
+        existing_records = sheet.get_all_values()
+        registro = len(existing_records)
 
-        # Guardar imagen con nombre único
-        if foto_ticket:
-            nombre_foto = f"fotos_tickets/ticket_{registro_id}.png"
-            with open(nombre_foto, "wb") as f:
-                f.write(foto_ticket.read())
-            st.success(f"📸 Foto guardada: {nombre_foto}")
-
-        # Formato de fila a insertar
-        fila = [
+        # Nueva fila para Google Sheets
+        nueva_fila = [
             fecha_ticket.strftime("%d/%m/%Y"),
             tipo_ticket,
             cliente_motivo,
@@ -54,16 +51,33 @@ with st.form("registro_gasto"):
             "",
             f"{importe:.2f} €"
         ]
-        sheet.append_row(fila)
-        st.success("✅ Gasto guardado en Google Sheets correctamente.")
+        sheet.append_row(nueva_fila)
 
-# Descargar fotos en ZIP
+        # Guardar foto
+        if foto_ticket is not None:
+            nombre_foto = f"foto_{registro}.png"
+            ruta_foto = os.path.join("fotos_tickets", nombre_foto)
+            with open(ruta_foto, "wb") as f:
+                f.write(foto_ticket.read())
+            st.success(f"📷 Foto guardada: {ruta_foto}")
+
+        st.success("✅ Gasto guardado correctamente.")
+
+# ======================== DESCARGAR FOTOS ========================
 if st.button("📁 Descargar todas las fotos (ZIP)"):
-    zip_path = "fotos_tickets.zip"
-    with zipfile.ZipFile(zip_path, "w") as zipf:
-        for root, _, files in os.walk("fotos_tickets"):
+    zip_filename = "fotos_tickets.zip"
+    with zipfile.ZipFile(zip_filename, "w") as zipf:
+        for root, dirs, files in os.walk("fotos_tickets"):
             for file in files:
                 zipf.write(os.path.join(root, file), arcname=file)
+    with open(zip_filename, "rb") as f:
+        st.download_button("Descargar ZIP", f, file_name=zip_filename)
 
-    with open(zip_path, "rb") as f:
-        st.download_button("📥 Descargar ZIP", f, file_name="fotos_tickets.zip")
+# ======================== DESCARGAR GOOGLE SHEET ========================
+if st.button("📄 Descargar Excel (Google Sheets)"):
+    data = sheet.get_all_values()
+    df = pd.DataFrame(data[1:], columns=data[0])
+    excel_filename = "registro_gastos.xlsx"
+    df.to_excel(excel_filename, index=False)
+    with open(excel_filename, "rb") as f:
+        st.download_button("Descargar Excel", f, file_name=excel_filename)
