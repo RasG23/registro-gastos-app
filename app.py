@@ -6,9 +6,13 @@ from datetime import datetime
 # Configurar título
 st.title("Registro de Gastos de Empresa")
 
+# Definir carpetas
+EXCEL_FOLDER = os.path.abspath("gastos_excel")
+FOTOS_FOLDER = os.path.abspath("fotos_tickets")
+
 # Crear carpetas si no existen
-os.makedirs("gastos_excel", exist_ok=True)
-os.makedirs("fotos_tickets", exist_ok=True)
+os.makedirs(EXCEL_FOLDER, exist_ok=True)
+os.makedirs(FOTOS_FOLDER, exist_ok=True)
 
 # Formulario para ingreso de datos
 with st.form("registro_gasto"):
@@ -24,7 +28,7 @@ with st.form("registro_gasto"):
     if enviado:
         # Obtener mes y año
         mes_anio = fecha_ticket.strftime("%m_%Y")
-        nombre_archivo_excel = f"gastos_excel/gastos_{mes_anio}.xlsx"
+        nombre_archivo_excel = os.path.join(EXCEL_FOLDER, f"gastos_{mes_anio}.xlsx")
 
         # Crear o cargar Excel existente
         if os.path.exists(nombre_archivo_excel):
@@ -47,10 +51,15 @@ with st.form("registro_gasto"):
         # Guardar Excel
         df.to_excel(nombre_archivo_excel, index=False)
 
-        # Guardar foto
+        # Guardar foto (único nombre para evitar sobrescribir)
         if foto_ticket is not None:
-            nombre_foto = f"fotos_tickets/ticket_{fecha_ticket.strftime('%d%m%Y')}_{tipo_ticket}.png"
-            with open(nombre_foto, "wb") as f:
+            timestamp = datetime.now().strftime("%H%M%S")
+            nombre_foto = f"ticket_{fecha_ticket.strftime('%d%m%Y')}_{tipo_ticket}_{timestamp}.png"
+            ruta_foto = os.path.join(FOTOS_FOLDER, nombre_foto)
+            with open(ruta_foto, "wb") as f:
                 f.write(foto_ticket.read())
+            st.success(f"📸 Foto guardada: `{ruta_foto}`")
 
+        # Mostrar confirmación con ruta del Excel
         st.success("✅ Gasto guardado correctamente.")
+        st.info(f"📁 Excel guardado en: `{nombre_archivo_excel}`")
