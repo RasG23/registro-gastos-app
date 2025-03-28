@@ -2,127 +2,112 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
-from io import BytesIO
-import zipfile
+from zipfile import ZipFile
 
-# ========================
-# CONFIGURACIÓN DE PÁGINA
-# ========================
+# ================= CONFIG =================
 st.set_page_config(page_title="Registro de Gastos", layout="centered")
 
-# ================
-# RUTAS DIRECTORIOS
-# ================
-EXCEL_DIR = "gastos_excel"
-FOTOS_DIR = "fotos_tickets"
-os.makedirs(EXCEL_DIR, exist_ok=True)
-os.makedirs(FOTOS_DIR, exist_ok=True)
+# ================== RUTAS ==================
+FOLDER_EXCEL = "registro-gastos-app/gastos_excel"
+FOLDER_FOTOS = "registro-gastos-app/fotos_tickets"
+os.makedirs(FOLDER_EXCEL, exist_ok=True)
+os.makedirs(FOLDER_FOTOS, exist_ok=True)
 
-# =====================
-# FORMULARIO DE INGRESO
-# =====================
-st.title("💸 Registro de Gastos")
+# =============== FUNCIONES =================
+def guardar_excel(df, fecha):
+    mes = fecha.strftime("%m")
+    anio = fecha.strftime("%Y")
+    nombre_archivo = f"gastos_{mes}_{anio}.xlsx"
+    ruta_archivo = os.path.join(FOLDER_EXCEL, nombre_archivo)
+    df.to_excel(ruta_archivo, index=False)
+    return nombre_archivo
 
-with st.form("gastos_formulario"):
-    fecha_ticket = st.date_input("Fecha del ticket", value=datetime.today())
-    tipo_ticket = st.selectbox("Tipo de gasto", ["Gasolina", "Peaje", "Otro"])
-    cliente_motivo = st.text_input("Cliente o motivo")
-    origen_destino = st.text_input("Origen - Destino")
-    distancia_km = st.number_input("Distancia (KM)", min_value=0.0, step=1.0)
-    importe_total = st.number_input("Importe Total (€)", min_value=0.0, step=0.01)
-    archivo_ticket = st.file_uploader("Sube la foto del ticket", type=["jpg", "jpeg", "png"])
+def cargar_excel(fecha):
+    mes = fecha.strftime("%m")
+    anio = fecha.strftime("%Y")
+    nombre_archivo = f"gastos_{mes}_{anio}.xlsx"
+    ruta_archivo = os.path.join(FOLDER_EXCEL, nombre_archivo)
+    if os.path.exists(ruta_archivo):
+        return pd.read_excel(ruta_archivo)
+    else:
+        return pd.DataFrame(columns=[
+            "REGISTRO Nº", "FECHA Ticket", "TIPO Ticket", "CLIENTE/MOTIVO",
+            "ORIGEN-DESTINO", "DISTANCIA (KM)", "IMPORTE (un)", "IMPORTE TOTAL",
+            "ARCHIVO FOTO"])
 
-    enviar = st.form_submit_button("Guardar gasto")
+def zip_fotos_mes(fecha):
+    mes = fecha.strftime("%m")
+    anio = fecha.strftime("%Y")
+    zip_filename = f"fotos_tickets_{mes}_{anio}.zip"
+    zip_path = os.path.join(FOLDER_FOTOS, zip_filename)
+    with ZipFile(zip_path, 'w') as zipf:
+        for file in os.listdir(FOLDER_FOTOS):
+            if file.endswith(f"_{mes}{anio}.jpg") or file.endswith(f"_{mes}{anio}.png"):
+                zipf.write(os.path.join(FOLDER_FOTOS, file), arcname=file)
+    return zip_path
 
-    if enviar:
-        # ------------------
-        # Archivo Excel del mes
-        # ------------------
-        mes_ano = fecha_ticket.strftime("%m_%Y")
-        archivo_excel = os.path.join(EXCEL_DIR, f"gastos_{mes_ano}.xlsx")
+# ================= UI =================
+st.title("Registro de Gastos")
 
-        # ------------------
-        # Cargar datos existentes o crear nuevo
-        # ------------------
-        if os.path.exists(archivo_excel):
-            df = pd.read_excel(archivo_excel)
-        else:
-            df = pd.DataFrame(columns=["FECHA Ticket", "TIPO Ticket", "CLIENTE/MOTIVO", "ORIGEN-DESTINO", "DISTANCIA (KM)", "IMPORTE TOTAL", "ARCHIVO FOTO"])
+with st.form("registro_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        fecha_ticket = st.date_input("Fecha del ticket", value=datetime.today())
+        tipo_ticket = st.selectbox("Tipo de ticket", ["Gasoil", "Gasolina", "Otro"])
+        cliente_motivo = st.text_input("Cliente / Motivo")
+    with col2:
+        origen_destino = st.text_input("Origen - Destino")
+        distancia_km = st.number_input("Distancia (KM)", min_value=0.0, step=1.0, format="%.2f")
+        importe_total = st.number_input("Importe Total (€)", min_value=0.0, step=1.0, format="%.2f")
 
-        # ------------------
-        # Crear nuevo registro
-        # ------------------
-        nuevo_id = len(df) + 1
-        nombre_foto = ""
-        if archivo_ticket is not None:
-            nombre_foto = f"ticket_{nuevo_id}_{fecha_ticket.strftime('%d%m%Y')}.jpg"
-            ruta_foto = os.path.join(FOTOS_DIR, nombre_foto)
+    foto = st.file_uploader("Sube la foto del ticket", type=["jpg", "jpeg", "png"])
+    st.form_submit_button("Guardar gasto")
+
+    if st.session_state.get("registro_form"):
+        df = cargar_excel(fecha_ticket)
+        registro_num = len(df) + 1
+
+        # Guardar la foto con nombre único
+        fecha_str = fecha_ticket.strftime("%d%m%Y")
+        foto_nombre = f"ticket_{registro_num}_{fecha_str}.jpg"
+        ruta_foto = os.path.join(FOLDER_FOTOS, foto_nombre)
+
+        if foto:
             with open(ruta_foto, "wb") as f:
-                f.write(archivo_ticket.read())
+                f.write(foto.read())
+            st.success(f"\U0001F4F7 Foto guardada: {ruta_foto}")
 
-        # ------------------
-        # Añadir fila
-        # ------------------
-        nueva_fila = {
-            "FECHA Ticket": fecha_ticket.strftime("%Y-%m-%d"),
+        nuevo_registro = {
+            "REGISTRO Nº": registro_num,
+            "FECHA Ticket": fecha_ticket.strftime("%d/%m/%Y"),
             "TIPO Ticket": tipo_ticket,
             "CLIENTE/MOTIVO": cliente_motivo,
             "ORIGEN-DESTINO": origen_destino,
             "DISTANCIA (KM)": distancia_km,
-            "IMPORTE TOTAL": importe_total,
-            "ARCHIVO FOTO": nombre_foto
+            "IMPORTE (un)": "",
+            "IMPORTE TOTAL": f"{importe_total:.2f} €",
+            "ARCHIVO FOTO": foto_nombre if foto else ""
         }
 
-        df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
-        df.to_excel(archivo_excel, index=False)
+        df.loc[len(df)] = nuevo_registro
+        nombre_excel = guardar_excel(df, fecha_ticket)
 
-        st.success("✅ Gasto guardado correctamente.")
-        if nombre_foto:
-            st.info(f"📸 Foto guardada: `{ruta_foto}`")
-        st.info(f"🧾 Excel actualizado: `{archivo_excel}`")
+        st.success("\u2705 Gasto guardado correctamente.")
+        st.info(f"\U0001F4C4 Excel guardado en: {nombre_excel}")
 
-# ====================================
-# SECCIÓN DE DESCARGAS DE EXCEL Y FOTOS
-# ====================================
+# ================= DESCARGAS =================
 st.markdown("---")
-st.header("⬇️ Descargas")
+st.subheader("Descargar archivos")
 
-# Obtener meses disponibles
-meses_excel = sorted([f for f in os.listdir(EXCEL_DIR) if f.endswith(".xlsx")])
-meses_fotos = sorted(set(
-    "_".join(nombre.split("_")[2:4]).replace(".jpg", "") for nombre in os.listdir(FOTOS_DIR) if nombre.startswith("ticket")
-))
+col1, col2 = st.columns(2)
+with col1:
+    fecha_excel = st.date_input("Selecciona mes para Excel")
+    excel_file = os.path.join(FOLDER_EXCEL, guardar_excel(cargar_excel(fecha_excel), fecha_excel))
+    with open(excel_file, "rb") as f:
+        st.download_button("\U0001F4C3 Descargar Excel", f, file_name=os.path.basename(excel_file))
 
-# -----------------------
-# DESCARGAR ARCHIVO EXCEL
-# -----------------------
-st.subheader("📊 Descargar Excel")
-if meses_excel:
-    mes_elegido_excel = st.selectbox("Selecciona el mes", meses_excel, key="excel")
-    with open(os.path.join(EXCEL_DIR, mes_elegido_excel), "rb") as f:
-        st.download_button("📥 Descargar Excel", data=f, file_name=mes_elegido_excel, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-else:
-    st.info("No hay archivos Excel para descargar.")
-
-# ---------------------
-# DESCARGAR FOTOS ZIP
-# ---------------------
-st.subheader("🖼️ Descargar todas las fotos (ZIP)")
-if meses_fotos:
-    mes_elegido_foto = st.selectbox("Selecciona el mes", meses_fotos, key="fotos")
-
-    # Filtrar fotos de ese mes
-    fotos_mes = [f for f in os.listdir(FOTOS_DIR) if mes_elegido_foto in f]
-
-    if fotos_mes:
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as zipf:
-            for foto in fotos_mes:
-                ruta = os.path.join(FOTOS_DIR, foto)
-                zipf.write(ruta, arcname=foto)
-        zip_buffer.seek(0)
-        st.download_button("📥 Descargar ZIP con fotos", data=zip_buffer, file_name=f"fotos_{mes_elegido_foto}.zip", mime="application/zip")
-    else:
-        st.warning("No se encontraron fotos para ese mes.")
-else:
-    st.info("No hay fotos disponibles aún.")
+with col2:
+    fecha_fotos = st.date_input("Selecciona mes para Fotos")
+    zip_file = zip_fotos_mes(fecha_fotos)
+    with open(zip_file, "rb") as f:
+        st.download_button("\U0001F4C4 Descargar fotos ZIP", f, file_name=os.path.basename(zip_file))
